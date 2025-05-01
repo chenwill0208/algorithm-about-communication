@@ -1,0 +1,33 @@
+function theta_est = esprit()
+
+    M = 10; 
+    theta_true = [-28, -17, 27, 43]; 
+    SNR_dB = 3; 
+    snapshots = 50;  %snapshot
+    d = 0.5; 
+    K = length(theta_true);
+    
+    signal_power = 1;  % 固定信號功率為1
+    noise_power = signal_power / (10^(SNR_dB / 10));
+    A = zeros(M, K);
+    for k = 1:K
+        A(:,k) = exp(1i*2*pi*d*(0:M-1)'*sind(theta_true(k)));
+    end
+
+    X = A * (sqrt(signal_power) / 2 * randn(K, snapshots) + 1i * randn(K, snapshots));  % 信號
+    noise = sqrt(noise_power) / 2 * (randn(size(X)) + 1i * randn(size(X)));  % 噪聲
+    X_noisy = X + noise;
+    
+    R = X_noisy * X_noisy' / snapshots; 
+    [Es, ~] = eigs(R, K); 
+    
+    Es1 = Es(1:end-1, :); 
+    Es2 = Es(2:end, :); 
+    Psi = pinv(Es1) * Es2;
+    eigvals = eig(Psi);
+    angles = asin(angle(eigvals) / pi); 
+    
+    theta_est = sort(rad2deg(angles)); 
+    
+
+end
