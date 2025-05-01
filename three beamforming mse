@@ -1,0 +1,81 @@
+%三種beamforming的mse比較圖
+function msennnn()
+
+M = 20;             
+d = 0.5;           
+SNR = -10:2:50; 
+theta_d = 0; 
+theta_interf = [-40 -45 38]; 
+N = 5000;          
+signal_power = 0.1;
+noise_power = 20.^(-SNR ./ 10);
+lambda = 1;  
+k = 2*pi/lambda;
+
+A = @(theta) exp(1j * k * d * (0:M-1)' * sind(theta));
+% 目標信號方向向量
+a_d = A(theta_d);
+% 干擾信號方向向量
+A_interf = A(theta_interf);
+
+MSEsum_DAS = zeros(size(SNR));
+MSEsum_MMSE = zeros(size(SNR));
+MSEsum_MVDR = zeros(size(SNR));
+
+for idx = 1:length(SNR)
+
+    % 目標信號生成(1 x N)no steering
+    desire_signal = sqrt(signal_power/2) * (randn(1, N) + 1j * randn(1, N));
+    % 干擾信號生成(M x N)with steering
+    interference_signal = A_interf * (sqrt(signal_power/2) * (randn(length(theta_interf), N) + 1j * randn(length(theta_interf), N)));
+    % 噪聲生成
+    noise = sqrt(noise_power(idx)/2) * (randn(M, N) + 1j * randn(M, N));
+    % 接收信號
+    yn = a_d * desire_signal + interference_signal + noise;
+    
+    % 协方差矩阵
+    Ry = (yn * yn') / N;
+    % 特征值分解
+    [V, D] = eig(Ry);
+    [eig_vals, idx2] = sort(diag(D), 'descend');
+    V = V(:, idx2);
+    D = diag(eig_vals);
+    K = 4;
+    % 取前 K 个特征值和对应的特征向量
+    V_s = V(:, 1:K);
+    D_s = D(1:K, 1:K);
+    % 计算信号子空间的近似逆
+    R_yinv = V_s * diag(1 ./ diag(D_s)) * V_s';
+    
+    % DAS 权重向量
+    w_ds = (1/M) * ones(M, 1);
+
+    % MMSE 权重向量
+    Pd = (yn * desire_signal') / N;
+    w_mmse = R_yinv * Pd;
+
+    % MVDR 权重向量
+    C = [a_d, A_interf];
+    f = [1; zeros(length(theta_interf), 1)];
+    w_mvdr = R_yinv * C / (C' * R_yinv * C) * f;
+
+    % 计算 MSE
+    MSEsum_DAS(idx) = mean(abs(desire_signal - w_ds' * yn).^2);
+    MSEsum_MMSE(idx) = mean(abs(desire_signal - w_mmse' * yn).^2);
+    MSEsum_MVDR(idx) = mean(abs(desire_signal - w_mvdr' * yn).^2);
+end
+
+% 归一化 MSE
+MSEsum_DAS = MSEsum_DAS / max(MSEsum_DAS);
+
+% 绘图
+figure;
+semilogy(SNR, MSEsum_DAS, '-o', 'DisplayName', 'DAS');
+hold on;
+semilogy(SNR, MSEsum_MMSE, '-+', 'DisplayName', 'MMSE');
+semilogy(SNR, MSEsum_MVDR, '-*', 'DisplayName', 'MVDR');
+xlabel('SNR (dB)'); ylabel('MSE');
+legend; grid on;
+title('MSE of three beamforming: Delay-and-Sum, MMSE, MVDR');
+
+end
