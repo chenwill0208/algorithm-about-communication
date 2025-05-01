@@ -1,0 +1,42 @@
+%%DOA MUSIC演算法---------------------------------------------------
+function music(m, k, snapshot, realA, snrDB, lambda)
+ 
+    d = lambda / 2;  
+    arraypos = (0:m-1) * d;  
+    ang = exp(-1i * pi * arraypos' * sind(realA)); 
+
+    snr_linear = 10^(snrDB / 10); 
+    noisepowerDB = 6:-3:-30;  %%噪聲功率（分貝）
+    for i = 1:length(noisepowerDB)  
+        sigma_n2 = 10^(noisepowerDB(i)/10);  %%線性的噪聲功率(Watt)
+        signal_power = sigma_n2 * snr_linear;  %%信號功率
+    end
+    signal = sqrt(signal_power / 2) * randn(k, snapshot) + 1i * randn(k, snapshot); %%生成一個 k×snapshot 的實數隨機矩陣，矩陣中的元素是來自標轉常態（均值0，標準差1）隨機數，後面是複數。
+    noise = sqrt(sigma_n2 / 2) * (randn(m, snapshot) + 1i * randn(m, snapshot));  %%生成m×snapshot 的實數隨機矩陣，表示來自高斯分布的隨機噪聲。
+    x = ang * signal + noise; 
+    R = (1 / snapshot) * (x * x');   %%協方差自相干矩陣
+
+    % 特征值分解
+    [E, D] = eig(R);  %%E:特徵向量矩陣，每一列是R的一個特徵向量。D:對角矩陣，其對角元素是R的特徵值
+    [D_sorted, idx] = sort(diag(D), 'descend');  %%下降排序特徵值存入等號左邊，值大為信號
+    E = E(:, idx);  %%重排特徵向量
+    En = E(:, k+1:end);  %%拿出重排後的噪聲子空間
+
+    scanA = -90:0.1:90;
+    pmusic = zeros(1, length(scanA));  
+    for t = 1:length(scanA)
+        a_theta = exp(-1i * 2 * pi / lambda * arraypos' * sind(scanA(t)));
+        pmusic(t) = 1 / abs(a_theta' * (En * En') * a_theta);  
+    end
+
+    
+    figure
+    plot(scanA, 10 + 10*log10(pmusic), 'LineWidth', 1.5)
+    xlabel('DOA (°)')
+    ylabel('Pseudo spectra: S(\theta)')
+    title(['SNR=', num2str(snrDB), 'dB, M=', num2str(m)])
+    grid on
+    xlim([-100 100])  
+    ylim([0 80])      
+    grid on
+end
