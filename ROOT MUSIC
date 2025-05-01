@@ -1,0 +1,66 @@
+%--------------------------------------root music演算法
+function root_music_example()
+    M = 10;              
+    K = 4;               
+    theta = [-32, -17, 27, 43];  
+    snapshots = 50;       
+    SNR_dB = 10;      
+
+    
+        signal_power = 1;  % 固定信號功率為1
+        noise_power = signal_power / (10^(SNR_dB / 10));
+        
+        d = 0.5; 
+        A = zeros(M, K);
+        for k = 1:K
+            A(:,k) = exp(-1i*2*pi*d*(0:M-1)'*sind(theta(k)));
+        end
+
+        X = A * (sqrt(signal_power) / 2 * randn(K, snapshots) + 1i * randn(K, snapshots));  % 信號
+        noise = sqrt(noise_power) / 2 * (randn(size(X)) + 1i * randn(size(X)));  % 噪聲
+        X_noisy = X + noise;
+
+        % 計算自相關矩陣
+        Rxx = (1/snapshots) * (X_noisy * X_noisy');
+
+        % 特徵分解
+        [V, D] = eig(Rxx);
+        [~, idx] = sort(diag(D), 'ascend');
+        Un = V(:, idx(1:M-K));  % 噪聲子空間
+
+        % 構建多項式 S(z)
+        P = zeros(2*M-1, 1);
+        for m = 1:M
+            for n = 1:M
+                P(m-n+M) = P(m-n+M) + Un(m,:) * Un(n,:)';
+            end
+        end
+
+        % 根軌跡 (求解 S(z) 的根)
+        roots_of_S = roots(P);
+        
+        % 選取落在圓周內並最接近單位圓的根
+        roots_of_S = roots_of_S(abs(roots_of_S) < 4);  %這裡小於1算出來的角度才會正確，想看繪圖可以改成4
+        [~, sorted_idx] = sort(abs(abs(roots_of_S) - 1));  % 根據距離單位圓的距離排序
+        closest_roots = roots_of_S(sorted_idx(1:K));  % 取最接近單位圓的四個根
+
+        % 計算 DOA 角度
+        doa_angles = asind(angle(closest_roots) / pi);
+        doa_angles = sort(doa_angles);
+        disp(['for snr = ', num2str(SNR_dB)]);
+        disp('Estimated DOA angles :')
+        disp(-doa_angles)
+    
+
+    % 繪製根軌跡圖
+    figure;
+    plot(real(roots_of_S), imag(roots_of_S), 'o');
+    hold on;
+    theta_grid = linspace(-pi, pi, 360);
+    plot(cos(theta_grid), sin(theta_grid), 'r--');  % 單位圓
+    axis([-2 2 -2 2]);
+    xlabel('Re(z)');
+    ylabel('Im(z)');
+    title(sprintf('Root MUSIC for M=%d, K=%d, SNR=%ddB', M, K, SNR_dB));
+    grid on;
+end
