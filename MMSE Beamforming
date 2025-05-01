@@ -1,0 +1,72 @@
+function mmse()
+    M = 20; 
+    theta_d = 0; 
+    theta_interf = [-40 -45 38]; 
+    signal_power = 10;  % 固定目標與干擾信號功率為10
+    noise_power = 20; 
+    N = 5000; 
+    K = length(theta_interf); 
+    lambda = 1; 
+    d = 0.5 ;
+    k = 2 * pi / lambda; % 波數
+    theta = -90:0.01:90;
+    
+    A = @(theta) exp(1j * k * d * (0:M-1)' * sind(theta));
+    % 目標向量(theta d)
+    a_d = A(theta_d);
+
+    % 干擾向量(theta k)
+    A_interf = A(theta_interf);
+
+    % 目標信號
+    desire_signal = sqrt(signal_power) / 2 * (randn(1, N) + 1i * randn(1, N));  
+
+    % 干擾信號
+    interference_signal = sqrt(signal_power) / 2 * (randn(K, N) + 1i * randn(K, N));  
+
+    % 噪聲
+    noise = sqrt(noise_power) / 2 * (randn(M, N) + 1i * randn(M, N));
+
+    % 接收信號
+    yn = a_d * desire_signal + A_interf * interference_signal + noise;
+
+    Rysum = zeros(M, M); 
+    Pdsum = zeros(M, 1);
+
+    for i = 1:N  
+        Rysum = Rysum + yn(:, i) * yn(:, i)'; 
+        Pdsum = Pdsum + yn(:, i) * conj(desire_signal(i)); 
+    end
+
+    % 估計自相關矩陣和互相關向量
+    Ry = Rysum / N; 
+    Pd = Pdsum / N; 
+
+    % MMSE權重
+    w_mmse = Ry \ Pd;  
+
+    %波束图
+    AF = zeros(1, length(theta)); 
+    for i = 1:length(theta)
+        a_theta = exp(1j * (0:M-1)' * k * d * sind(theta(i))); 
+        AF(i) = abs(w_mmse' * a_theta); 
+    end
+
+    
+    AF = AF / max(AF);
+
+    % 畫 "beampattern"
+    figure;
+    plot(theta, 10*log10(AF), 'b', 'LineWidth', 0.5);
+    xlabel('入射角(度)');
+    ylabel('增益 (dB)');
+    title('MMSE Beampattern');
+    grid on;
+    ylim([-40 0]);
+    xlim([-90 90]);
+    hold on;
+    xline(0, 'r-', 'LineWidth', 0.5);      
+    xline(-40, 'r--', 'LineWidth', 0.5);   
+    xline(-45, 'r--', 'LineWidth', 0.5);   
+    xline(38, 'r--', 'LineWidth', 0.5);   
+end
