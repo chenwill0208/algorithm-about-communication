@@ -1,0 +1,120 @@
+function twoDESPRIT6()
+
+M = 10;                 % x 方向陣元數
+N = 10;                 % y 方向陣元數
+L = 3;                  % 信源數
+num_monte_carlo = 50;   % 蒙特卡洛模擬次數
+Nsamples = 4000;        % 快拍數
+SNR_dB = -5:5:30;
+num_SNR = length(SNR_dB);
+signal_power = 1;
+
+% 真實DOA角度
+theta_true = [-63, 30.6, 59.4];       
+phi_true = [11.7, 37.8, 67.5];        
+
+% 預先分配 MSE 陣列
+MSE_theta = zeros(size(SNR_dB));
+MSE_phi = zeros(size(SNR_dB));
+
+% 生成網格排列索引
+[rows, cols] = ndgrid(0:M-1, 0:N-1);
+
+% 主要模擬迴圈
+for snr_idx = 1:num_SNR
+    SNR = SNR_dB(snr_idx);
+    noise_power = 10^(-SNR/10);
+    
+    theta_error = 0;
+    phi_error = 0;
+    
+    for mc = 1:num_monte_carlo
+        % 生成信號
+        signal = sqrt(signal_power/2)*(randn(L, Nsamples) + 1j*randn(L, Nsamples));
+        
+        % 生成陣列響應矩陣
+        u = sind(phi_true).*cosd(theta_true);
+        v = sind(phi_true).*sind(theta_true);
+        
+        A = exp(1j*pi*(rows(:)*u + cols(:)*v)); % (M*N)xL
+        
+        % 生成噪聲
+        noise = sqrt(noise_power/2)*(randn(M*N, Nsamples) + 1j*randn(M*N, Nsamples));
+        
+        % 接收信號
+        Y = A*signal + noise;
+        
+        % 計算協方差矩陣
+        R = Y*Y'/Nsamples;
+        
+        % 特徵值分解
+        [E, D] = eig(R);
+        [~, idx] = sort(diag(D), 'descend');
+        E_s = E(:, idx(1:L));
+        
+        % 構建選擇矩陣
+        Jx1 = eye(M-1, M);
+        Jx2 = circshift(Jx1, [0 1]);
+        Jy1 = eye(N-1, N);
+        Jy2 = circshift(Jy1, [0 1]);
+        
+        % 構建總選擇矩陣
+        J1 = kron(Jy1, Jx1);
+        J_psi = kron(Jy1, Jx2);
+        J_phi = kron(Jy2, Jx1);
+        
+        % 子空間配對
+        E1 = J1*E_s;
+        E2_psi = J_psi*E_s;
+        E2_phi = J_phi*E_s;
+        
+        % 求解最小二乘問題
+        Psi = E1 \ E2_psi;
+        Phi = E1 \ E2_phi;
+        
+        % 聯合對角化修正
+        [V, D_psi] = eig(Psi);
+        D_phi = V \ Phi * V;  % 使用相同V矩陣轉換Phi
+        
+        u_est = angle(diag(D_psi))/pi;
+        v_est = angle(diag(D_phi))/pi;
+        
+        % 估計角度
+        theta_est = atan2d(v_est, u_est);
+        sin_phi = sqrt(u_est.^2 + v_est.^2);
+        sin_phi = min(sin_phi, 1); % 限制範圍避免複數
+        sin_phi = max(sin_phi, -1);
+        phi_est = asind(sin_phi);
+        
+        % 使用最小距離配對
+        true_angles = [theta_true(:), phi_true(:)];
+        est_angles = [theta_est(:), phi_est(:)];
+        
+        % 計算距離矩陣並配對
+        cost = pdist2(true_angles, est_angles);
+        [~, assign] = min(cost, [], 2);
+        matched_est = est_angles(assign, :);
+        
+        % 累積誤差
+        theta_error = theta_error + sum((matched_est(:,1) - true_angles(:,1)).^2);
+        phi_error = phi_error + sum((matched_est(:,2) - true_angles(:,2)).^2);
+    end
+    
+    % 計算MSE
+    MSE_theta(snr_idx) = theta_error/(num_monte_carlo*L);
+    MSE_phi(snr_idx) = phi_error/(num_monte_carlo*L);
+end
+
+% 繪製結果
+figure;
+semilogy(SNR_dB, MSE_theta, 'b-o', 'LineWidth', 1, 'MarkerFaceColor', 'b');
+hold on;
+semilogy(SNR_dB, MSE_phi, 'r-s', 'LineWidth', 1, 'MarkerFaceColor', 'r');
+grid on;
+xlabel('SNR (dB)');
+ylabel('MSE (deg^2)');
+title('2D-ESPRIT MSE (修正後)');
+legend('方位角 \theta', '仰角 \phi');
+set(gca, 'FontSize', 12, 'YScale', 'log');
+
+end
