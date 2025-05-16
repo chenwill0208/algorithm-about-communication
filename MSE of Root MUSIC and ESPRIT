@@ -1,0 +1,133 @@
+clc;
+clear;
+close all;
+
+theta_real = [-43, -28, 17, 45]; 
+K = length(theta_real); 
+M_values = [10, 15]; 
+N_snapshots = 30; 
+lambda = 1; 
+d = lambda / 2; 
+SNR_dB_values = 15:-3:-3; % 信噪比 (dB) 數值範圍
+N_trials = 500; 
+signal_power = 1;
+
+% 儲存 MSE 結果
+MSE_results = zeros(length(M_values), length(SNR_dB_values));
+MSE_results2 = zeros(length(M_values), length(SNR_dB_values));
+
+% 主程式迴圈
+for m_idx = 1:length(M_values)
+    M = M_values(m_idx); % 天線數量
+    array_pos = (0:M-1) * d; % ULA 陣列天線位置
+
+    % 對於每個 M，對不同 SNR 進行模擬
+    for snr_idx = 1:length(SNR_dB_values)
+        SNR_dB = SNR_dB_values(snr_idx);
+        noise_power = 1 / (10^(SNR_dB / 10)); 
+        MSE_sum = 0; % 初始化 MSE 總和
+        MSE_sum2 = 0;
+
+        % standard MUSIC 試驗迴圈
+        for trial = 1:N_trials
+            % 信號產生 (複高斯隨機信號)
+            A = exp(-1i * 2 * pi / lambda * array_pos' * sind(theta_real)); % steering 矩陣
+            X = A * (sqrt(signal_power) / 2 * randn(K, N_snapshots) + 1i * randn(K, N_snapshots)); % 信號
+            noise = sqrt(noise_power) / 2 * (randn(size(X)) + 1i * randn(size(X))); % 噪聲
+            F = X + noise;
+
+            % 計算接收信號協方差矩陣 R
+            R = (1 / N_snapshots) * (F * F');
+
+            % 特徵值分解 (eig 分解)
+            [E, D] = eig(R);
+            [D_sorted, idx] = sort(diag(D), 'descend'); % 按降序排序特徵值
+            E = E(:, idx); % 按排序索引重新排列特徵向量
+
+           % ==== ESPRIT 方法 ====
+            [E_s, ~] = eigs(R, K); % 提取信號子空間
+            E_s1 = E_s(1:end-1, :);
+            E_s2 = E_s(2:end, :);
+            Phi = pinv(E_s1) * E_s2; % 計算 Phi 矩陣
+            eig_vals = eig(Phi);
+            doa_ESPRIT = sort(-asind(angle(eig_vals) / pi));
+            if length(doa_ESPRIT) == K
+                MSE_sum = MSE_sum + sum((theta_real(:) - doa_ESPRIT(:)).^2);
+            end
+        end
+            
+
+        % Root MUSIC 試驗迴圈
+        valid_trials_root = 0; % 初始化有效試驗數量
+        for trial = 1:N_trials
+            % 信號產生
+            A = exp(-1i * 2 * pi / lambda * array_pos' * sind(theta_real)); % Steering 矩陣
+            X = A * (sqrt(signal_power) / 2 * randn(K, N_snapshots) + 1i * randn(K, N_snapshots)); % 信號
+            noise = sqrt(noise_power) / 2 * (randn(size(X)) + 1i * randn(size(X))); % 噪聲
+            F = X + noise;
+
+            % 計算接收信號協方差矩陣 R
+            R = (1 / N_snapshots) * (F * F');
+
+            % 特徵值分解
+            [V, D] = eig(R);
+            [~, idx] = sort(diag(D), 'ascend'); % 按升序排序特徵值
+            Un = V(:, idx(1:M-K)); % 噪聲子空間
+
+            % 構建多項式 S(z)
+            P = zeros(2*M-1, 1);
+            for m = 1:M
+                for n = 1:M
+                    P(m-n+M) = P(m-n+M) + Un(m,:) * Un(n,:)';
+                end
+            end
+
+            % 根軌跡
+            roots_of_S = roots(P);
+            roots_of_S = roots_of_S(abs(roots_of_S) < 1); % 選取單位圓內的根
+
+            % 檢查根的數量是否足夠
+            if length(roots_of_S) >= K
+                valid_trials_root = valid_trials_root + 1; % 更新有效試驗次數
+                [~, sorted_idx] = sort(abs(abs(roots_of_S) - 1));
+                closest_roots = roots_of_S(sorted_idx(1:K));
+
+                % 計算 DOA
+                doa_angles = sort(-asind(angle(closest_roots) / pi));
+                if length(doa_angles) == K
+                    % 累加平方誤差到 MSE_sum2 (確保是標量加法)
+                    MSE_sum2 = MSE_sum2 + sum((theta_real(:) - doa_angles(:)).^2); % 確保維度對齊
+                end
+            end
+        end
+
+        % 平均 MSE
+        if valid_trials_root > 0
+            MSE_results2(m_idx, snr_idx) = MSE_sum2 / (K * valid_trials_root); % 這裡的結果是標量
+        else
+            MSE_results2(m_idx, snr_idx) = NaN; % 若無有效試驗，避免除以零
+        end
+
+        % 平均2個MSE
+        MSE_results(m_idx, snr_idx) = MSE_sum / (K * N_trials);
+    end
+end
+
+% 繪製 MSE 結果
+figure;
+hold on;
+for m_idx = 1:length(M_values)
+    % 繪製 MSE_results 曲線 (ESPRIT)
+    semilogy(SNR_dB_values, MSE_results(m_idx, :), '-o', 'LineWidth', 1, ...
+             'DisplayName', sprintf('M=%d (ESPRIT)', M_values(m_idx)));
+
+    % 繪製 MSE_results2 曲線 (root MUSIC)
+    semilogy(SNR_dB_values, MSE_results2(m_idx, :), '-X', 'LineWidth', 1, ...
+             'DisplayName', sprintf('M=%d (root MUSIC)', M_values(m_idx)));
+end
+xlabel('SNR (dB)');
+ylabel('MSE');
+legend('Location', 'northeast'); % 自動生成圖例
+title('MSE vs. SNR for Different M Values and MUSIC Methods');
+set(gca, 'YScale', 'log'); % 設定 y 軸為對數尺度
+grid on;
