@@ -1,0 +1,38 @@
+%delay and sum beamforming--------------------------------------------
+function delayandsum()
+k = 2*pi;
+M = 20;                  
+d = 0.5;                 
+theta_expect = 0;             
+%theta_real = [0, -40, -45, 38]; 
+theta = -90:0.001:90;  
+A = @(theta) exp(1j * k * d * (0:M-1)' * sind(theta));
+a_expect = A(theta_expect);
+
+% DAS權重向量
+w_ds = a_expect / norm(a_expect); 
+ %w_ds = (1/M) * ones(M,1);
+
+
+AF = zeros(1, length(theta));
+    for i = 1:length(theta)
+        a_theta = A(theta(i));
+        AF(i) = abs(w_ds' * a_theta);
+    end
+    %標準化
+    AF = AF / max(AF);
+
+figure;
+plot(theta, log10(AF), 'b', 'LineWidth', 0.5);
+xlabel('入射角度');
+ylabel('增益');
+title('Delay-and-Sum Beampattern');
+grid on;
+ylim([-40 0]);
+xlim([-90 90]);
+hold on;
+xline(0, 'r-', 'LineWidth', 0.5);      
+xline(-40, 'r--', 'LineWidth', 0.5);   
+xline(-45, 'r--', 'LineWidth', 0.5);   
+xline(38, 'r--', 'LineWidth', 0.5);    
+end
